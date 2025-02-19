@@ -2,7 +2,6 @@ import streamlit as st
 from datetime import date, timedelta
 import numpy as np
 import pandas as pd
-import plotly.express as px
 
 # Constants
 STOCKS_RETURN = 0.113
@@ -141,27 +140,6 @@ def calculate_portfolio_projections(annual_deposit: float, time_horizon: int, gl
     
     return projections
 
-def plot_glide_path(glide_path: list):
-    """Create a plotly line chart of the glide path."""
-    df = pd.DataFrame(glide_path)
-    df_melted = df.melt(id_vars=['year'], value_vars=['stocks', 'bonds', 'cash'], 
-                        var_name='Asset', value_name='Allocation')
-    
-    fig = px.line(df_melted, x='year', y='Allocation', color='Asset',
-                  title='Portfolio Allocation Over Time',
-                  labels={'Allocation': 'Allocation (%)', 'year': 'Year'})
-    
-    fig.update_layout(yaxis_range=[0, 100])
-    return fig
-
-def plot_projections(projections: list):
-    """Create a plotly line chart of the portfolio projections."""
-    df = pd.DataFrame(projections)
-    fig = px.line(df, x='year', y='portfolio_value',
-                  title='Portfolio Value Projection',
-                  labels={'portfolio_value': 'Portfolio Value ($)', 'year': 'Year'})
-    return fig
-
 def main():
     st.title("Education Savings Calculator")
     st.write("Plan your education savings with dynamic portfolio allocation")
@@ -270,17 +248,17 @@ def main():
         
         # Glide path visualization
         st.subheader("Investment Glide Path")
-        st.plotly_chart(plot_glide_path(glide_path), use_container_width=True)
+        glide_path_df = pd.DataFrame(glide_path)
+        st.line_chart(glide_path_df[['stocks', 'bonds', 'cash']])
         
         # Portfolio projection visualization
         st.subheader("Portfolio Value Projection")
-        st.plotly_chart(plot_projections(projections), use_container_width=True)
+        projection_df = pd.DataFrame(projections)
+        st.line_chart(projection_df['portfolio_value'])
         
         # Detailed projections table
         st.subheader("Year-by-Year Projections")
-        projection_df = pd.DataFrame(projections)
-        projection_df = projection_df.round(2)
-        st.dataframe(projection_df)
+        st.dataframe(pd.DataFrame(projections).round(2))
 
 if __name__ == "__main__":
     main()
