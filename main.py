@@ -21,7 +21,7 @@ END_ALLOCATION = {
 }
 
 # Define maximum allocation percentages for the start
-MAX_START_STOCKS = 60  # Maximum stocks allocation at start
+MAX_START_STOCKS = 80  # Maximum stocks allocation at start
 MAX_START_BONDS = 70   # Maximum bonds allocation at start
 MIN_START_CASH = 5     # Minimum cash allocation at start
 
