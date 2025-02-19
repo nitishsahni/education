@@ -1,6 +1,8 @@
 import streamlit as st
 from datetime import date, timedelta
 import numpy as np
+import pandas as pd
+import plotly.express as px
 
 # Constants
 STOCKS_RETURN = 0.113
@@ -12,26 +14,60 @@ BONDS_VOLATILITY = 0.05
 CASH_VOLATILITY = 0.02
 CUSHION_PERCENTAGE = 0.15  # 15% cushion
 
-# Portfolio allocation constants
-START_ALLOCATION = {
-    'stocks': 59,
-    'bonds': 41,
-    'cash': 0
-}
-
+# We only define END_ALLOCATION now, as START_ALLOCATION will be calculated
 END_ALLOCATION = {
-    'stocks': 20,
+    'stocks': 20,  # Conservative allocation for when funds are needed
     'bonds': 43,
     'cash': 37
 }
 
-def generate_glide_path(time_horizon: int):
+# Define maximum allocation percentages for the start
+MAX_START_STOCKS = 60  # Maximum stocks allocation at start
+MAX_START_BONDS = 70   # Maximum bonds allocation at start
+MIN_START_CASH = 5     # Minimum cash allocation at start
+
+def calculate_start_allocation(time_horizon: int) -> dict:
+    """
+    Calculate starting allocation based on time horizon and end allocation.
+    Uses a more conservative approach suitable for education savings.
+    """
+    # Calculate years remaining factor (0 to 1)
+    time_factor = min(time_horizon / 10, 1)  # Cap at 10 years for max aggressiveness
+    
+    # Calculate starting stocks allocation
+    start_stocks = min(
+        END_ALLOCATION['stocks'] + (MAX_START_STOCKS - END_ALLOCATION['stocks']) * time_factor,
+        MAX_START_STOCKS
+    )
+    
+    # Calculate starting bonds allocation
+    start_bonds = min(
+        END_ALLOCATION['bonds'] + (MAX_START_BONDS - END_ALLOCATION['bonds']) * time_factor * 0.7,
+        MAX_START_BONDS
+    )
+    
+    # Ensure minimum cash allocation
+    start_cash = max(MIN_START_CASH, 100 - start_stocks - start_bonds)
+    
+    # Adjust bonds to make total 100%
+    start_bonds = 100 - start_stocks - start_cash
+    
+    return {
+        'stocks': round(start_stocks, 2),
+        'bonds': round(start_bonds, 2),
+        'cash': round(start_cash, 2)
+    }
+
+def generate_glide_path(time_horizon: int) -> list:
     """Generate a glide path for portfolio allocation."""
+    start_allocation = calculate_start_allocation(time_horizon)
     glide_path = []
+    
     for year in range(time_horizon + 1):
-        stocks = START_ALLOCATION['stocks'] + (END_ALLOCATION['stocks'] - START_ALLOCATION['stocks']) * year / time_horizon
-        bonds = START_ALLOCATION['bonds'] + (END_ALLOCATION['bonds'] - START_ALLOCATION['bonds']) * year / time_horizon
-        cash = START_ALLOCATION['cash'] + (END_ALLOCATION['cash'] - START_ALLOCATION['cash']) * year / time_horizon
+        stocks = start_allocation['stocks'] + (END_ALLOCATION['stocks'] - start_allocation['stocks']) * year / time_horizon
+        bonds = start_allocation['bonds'] + (END_ALLOCATION['bonds'] - start_allocation['bonds']) * year / time_horizon
+        cash = start_allocation['cash'] + (END_ALLOCATION['cash'] - start_allocation['cash']) * year / time_horizon
+        
         glide_path.append({
             'year': year,
             'stocks': round(stocks, 2),
@@ -40,7 +76,7 @@ def generate_glide_path(time_horizon: int):
         })
     return glide_path
 
-def calculate_required_deposit(goal: float, years: int, weighted_return: float) -> float:
+def calculate_required_deposit(goal: float, years: int, start_allocation: dict) -> float:
     """Calculate required annual deposit based on goal and returns."""
     if years <= 0:
         return goal
@@ -51,9 +87,9 @@ def calculate_required_deposit(goal: float, years: int, weighted_return: float) 
         value = 0
         for _ in range(years):
             value += deposit
-            stocks = value * (START_ALLOCATION['stocks'] / 100) * (1 + STOCKS_RETURN)
-            bonds = value * (START_ALLOCATION['bonds'] / 100) * (1 + BONDS_RETURN)
-            cash = value * (START_ALLOCATION['cash'] / 100) * (1 + CASH_RETURN)
+            stocks = value * (start_allocation['stocks'] / 100) * (1 + STOCKS_RETURN)
+            bonds = value * (start_allocation['bonds'] / 100) * (1 + BONDS_RETURN)
+            cash = value * (start_allocation['cash'] / 100) * (1 + CASH_RETURN)
             value = stocks + bonds + cash
         return value
     
@@ -69,7 +105,7 @@ def calculate_required_deposit(goal: float, years: int, weighted_return: float) 
             high = guess
     return guess
 
-def calculate_portfolio_projections(annual_deposit: float, time_horizon: int, glide_path):
+def calculate_portfolio_projections(annual_deposit: float, time_horizon: int, glide_path: list) -> list:
     """Calculate year-by-year portfolio projections."""
     projections = []
     portfolio_value = 0
@@ -105,36 +141,62 @@ def calculate_portfolio_projections(annual_deposit: float, time_horizon: int, gl
     
     return projections
 
+def plot_glide_path(glide_path: list):
+    """Create a plotly line chart of the glide path."""
+    df = pd.DataFrame(glide_path)
+    df_melted = df.melt(id_vars=['year'], value_vars=['stocks', 'bonds', 'cash'], 
+                        var_name='Asset', value_name='Allocation')
+    
+    fig = px.line(df_melted, x='year', y='Allocation', color='Asset',
+                  title='Portfolio Allocation Over Time',
+                  labels={'Allocation': 'Allocation (%)', 'year': 'Year'})
+    
+    fig.update_layout(yaxis_range=[0, 100])
+    return fig
+
+def plot_projections(projections: list):
+    """Create a plotly line chart of the portfolio projections."""
+    df = pd.DataFrame(projections)
+    fig = px.line(df, x='year', y='portfolio_value',
+                  title='Portfolio Value Projection',
+                  labels={'portfolio_value': 'Portfolio Value ($)', 'year': 'Year'})
+    return fig
+
 def main():
     st.title("Education Savings Calculator")
+    st.write("Plan your education savings with dynamic portfolio allocation")
     
-    # Input form
     with st.form("savings_calculator"):
-        annual_tuition = st.number_input(
-            "Annual Tuition Cost ($)",
-            min_value=0.0,
-            value=20000.0,
-            step=1000.0
-        )
+        col1, col2 = st.columns(2)
         
-        years_in_university = st.number_input(
-            "Number of Years in University",
-            min_value=1,
-            max_value=10,
-            value=4
-        )
+        with col1:
+            annual_tuition = st.number_input(
+                "Annual Tuition Cost ($)",
+                min_value=1000.0,
+                max_value=100000.0,
+                value=20000.0,
+                step=1000.0
+            )
+            
+            years_in_university = st.number_input(
+                "Number of Years in University",
+                min_value=1,
+                max_value=10,
+                value=4
+            )
         
-        start_date = st.date_input(
-            "When do you want to start saving?",
-            min_value=date.today(),
-            value=date.today()
-        )
-        
-        university_start_date = st.date_input(
-            "When does university start?",
-            min_value=date.today(),
-            value=date.today() + timedelta(days=365*4)
-        )
+        with col2:
+            start_date = st.date_input(
+                "When do you want to start saving?",
+                min_value=date.today(),
+                value=date.today()
+            )
+            
+            university_start_date = st.date_input(
+                "When does university start?",
+                min_value=date.today(),
+                value=date.today() + timedelta(days=365*4)
+            )
         
         inflation_rate = st.slider(
             "Expected Annual Inflation Rate (%)",
@@ -163,22 +225,17 @@ def main():
         # Calculate total savings goal
         total_savings_goal = total_tuition + cushion_savings
         
+        # Calculate starting allocation
+        start_allocation = calculate_start_allocation(time_horizon)
+        
         # Generate glide path
         glide_path = generate_glide_path(time_horizon)
-        
-        # Calculate weighted return
-        initial_allocation = glide_path[0]
-        weighted_return = (
-            STOCKS_RETURN * initial_allocation['stocks']/100 +
-            BONDS_RETURN * initial_allocation['bonds']/100 +
-            CASH_RETURN * initial_allocation['cash']/100
-        )
         
         # Calculate recommended deposit
         recommended_deposit = calculate_required_deposit(
             total_savings_goal,
             time_horizon,
-            weighted_return
+            start_allocation
         )
         
         # Calculate projections
@@ -191,6 +248,7 @@ def main():
         # Display results
         st.header("Savings Plan Results")
         
+        # Key metrics
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Annual Deposit Needed", f"${recommended_deposit:,.2f}")
@@ -199,31 +257,30 @@ def main():
         with col3:
             st.metric("Time Horizon", f"{time_horizon} years")
         
-        # Display portfolio projections
-        st.subheader("Year-by-Year Projections")
-        projection_data = []
-        for p in projections:
-            projection_data.append({
-                "Year": p['year'],
-                "Annual Deposit": f"${p['deposit']:,.2f}",
-                "Portfolio Value": f"${p['portfolio_value']:,.2f}",
-                "Stocks": f"${p['stocks_value']:,.2f}",
-                "Bonds": f"${p['bonds_value']:,.2f}",
-                "Cash": f"${p['cash_value']:,.2f}"
-            })
-        st.dataframe(projection_data)
+        # Starting allocation
+        st.subheader("Starting Portfolio Allocation")
+        st.write(f"Based on your {time_horizon}-year time horizon, here's your recommended starting allocation:")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Stocks", f"{start_allocation['stocks']}%")
+        with col2:
+            st.metric("Bonds", f"{start_allocation['bonds']}%")
+        with col3:
+            st.metric("Cash", f"{start_allocation['cash']}%")
         
-        # Display glide path
-        st.subheader("Investment Allocation Over Time")
-        glide_path_data = []
-        for g in glide_path:
-            glide_path_data.append({
-                "Year": g['year'],
-                "Stocks (%)": f"{g['stocks']:.1f}%",
-                "Bonds (%)": f"{g['bonds']:.1f}%",
-                "Cash (%)": f"{g['cash']:.1f}%"
-            })
-        st.dataframe(glide_path_data)
+        # Glide path visualization
+        st.subheader("Investment Glide Path")
+        st.plotly_chart(plot_glide_path(glide_path), use_container_width=True)
+        
+        # Portfolio projection visualization
+        st.subheader("Portfolio Value Projection")
+        st.plotly_chart(plot_projections(projections), use_container_width=True)
+        
+        # Detailed projections table
+        st.subheader("Year-by-Year Projections")
+        projection_df = pd.DataFrame(projections)
+        projection_df = projection_df.round(2)
+        st.dataframe(projection_df)
 
 if __name__ == "__main__":
     main()
